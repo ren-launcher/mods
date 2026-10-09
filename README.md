@@ -2,6 +2,8 @@
 
 A source and distribution repository for Ren’Py mods. Each mod declares its version and usage in a README, stores its game-root overlay in `files/`, and is distributed as a ZIP inside an OCI artifact.
 
+The published [catalog](https://ren-launcher.github.io/mods/catalog.json) provides package metadata and download references. Artifacts are available through [GitHub Packages](https://github.com/ren-launcher/mods/packages).
+
 ## Installation and removal
 
 Close the game, import and enable the mod ZIP through your launcher, then start the game. Close the game before updating, disabling, or removing a mod.
