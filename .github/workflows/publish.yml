@@ -1,0 +1,93 @@
+name: Build and publish Mods
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mods-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: '3.12'
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.4
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run python -m unittest discover -s tests -v
+      - name: Validate recipes and version changes
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          args=()
+          if [[ -n "$BASE_REF" && ! "$BASE_REF" =~ ^0+$ ]]; then
+            args+=(--base "$BASE_REF")
+          fi
+          uv run python tools/catalog.py validate "${args[@]}"
+      - name: Build ZIPs, OCI artifacts and catalog
+        env:
+          REPOSITORY: ${{ github.repository }}
+          CATALOG_URL: ${{ vars.CATALOG_URL }}
+        run: |
+          owner="${REPOSITORY%%/*}"
+          repo="${REPOSITORY#*/}"
+          catalog_url="${CATALOG_URL:-https://${owner}.github.io/${repo}/catalog.json}"
+          uv run python tools/catalog.py build --repository "$REPOSITORY" --previous-url "$catalog_url"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mod-artifacts
+          path: dist/
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: '3.12'
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mod-artifacts
+          path: dist/
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USER" --password-stdin
+      - name: Publish exact build artifacts and verify public access
+        run: uv run --locked python tools/catalog.py publish
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/site
+      - name: Deploy catalog
+        id: deployment
+        uses: actions/deploy-pages@v4
