@@ -28,6 +28,8 @@ def digest(data):
 def parse_readme(text, mod_id):
     match = re.match(
         r"\A---\nversion: ((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\n"
+        r"(games:\n(?:  - [^\n]+\n)+)?"
+        r'(?:renpy: "([^"\n]+)"\n)?'
         r"---\n\s*# ([^\n]+)\n\s*([^\n]+(?:\n[^\n]+)*)",
         text,
     )
@@ -35,13 +37,24 @@ def parse_readme(text, mod_id):
         raise ValueError(
             f"{mod_id}: README requires version front matter, a title and a description"
         )
-    version, name, description = match.groups()
-    return {
+    version, games, renpy, name, description = match.groups()
+    recipe = {
         "id": mod_id,
         "version": version,
         "name": name,
         "description": " ".join(description.split()),
     }
+    if games:
+        keywords = [line.removeprefix("  - ").strip() for line in games.splitlines()[1:]]
+        if any(not keyword or any(c in keyword for c in "*?[]") for keyword in keywords):
+            raise ValueError(f"{mod_id}: games requires nonempty keywords without wildcards")
+        recipe["games"] = keywords
+    if renpy is not None:
+        constraint = r"(?:==|!=|>=|<=|>|<)(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}"
+        if not re.fullmatch(rf"{constraint}(?:,{constraint})*", renpy):
+            raise ValueError(f"{mod_id}: renpy requires comma-separated version comparisons")
+        recipe["renpy"] = renpy
+    return recipe
 
 
 def read_recipe(directory):
@@ -83,6 +96,10 @@ def write_zip(files, destination):
             archive.writestr(entry, path.read_bytes())
 
 
+def package_recipe(recipe):
+    return {key: value for key, value in recipe.items() if key not in {"games", "renpy"}}
+
+
 def check_versions(root, base, items):
     for directory, recipe in items:
         recipe_path = (directory / "README.md").relative_to(root).as_posix()
@@ -112,7 +129,7 @@ def check_versions(root, base, items):
         )
         if changed.returncode not in (0, 1):
             changed.check_returncode()
-        if changed.returncode == 1 or previous != recipe:
+        if changed.returncode == 1 or package_recipe(previous) != package_recipe(recipe):
             old = tuple(map(int, previous["version"].split(".")))
             new = tuple(map(int, recipe["version"].split(".")))
             if new <= old:
@@ -153,7 +170,7 @@ def source_digest(recipe, files, license_name):
     return digest(
         json_bytes(
             {
-                "recipe": recipe,
+                "recipe": package_recipe(recipe),
                 "license": license_name,
                 "files": [(relative, digest(path.read_bytes())) for path, relative in files],
             }
@@ -175,7 +192,16 @@ def build(root, output, repository, oras, previous=None):
         old = published.get(recipe["id"])
         if old is not None:
             if old["sourceDigest"] == source:
-                catalog["packages"].append(old)
+                catalog["packages"].append(
+                    {
+                        **{
+                            key: value
+                            for key, value in old.items()
+                            if key not in {"games", "renpy"}
+                        },
+                        **recipe,
+                    }
+                )
                 continue
             if tuple(map(int, recipe["version"].split("."))) <= tuple(
                 map(int, old["version"].split("."))
@@ -193,7 +219,12 @@ def build(root, output, repository, oras, previous=None):
         package_dir.mkdir(parents=True, exist_ok=True)
         archive_path = package_dir / "mod.zip"
         write_zip(files, archive_path)
-        metadata = {**recipe, "created": created, "license": license_name, "sourceDigest": source}
+        metadata = {
+            **package_recipe(recipe),
+            "created": created,
+            "license": license_name,
+            "sourceDigest": source,
+        }
         (package_dir / "config.json").write_bytes(json_bytes(metadata))
         subprocess.run(
             [
@@ -225,6 +256,7 @@ def build(root, output, repository, oras, previous=None):
         catalog["packages"].append(
             {
                 **metadata,
+                **recipe,
                 "artifact": {
                     "repository": f"ghcr.io/{repository}/{recipe['id']}",
                     "digest": digest(manifest),

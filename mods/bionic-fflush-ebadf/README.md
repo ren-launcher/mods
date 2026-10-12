@@ -1,5 +1,8 @@
 ---
 version: 1.0.0
+games:
+  - summertime saga
+renpy: "==7.3.5"
 ---
 
 # Bionic fflush EBADF Fix

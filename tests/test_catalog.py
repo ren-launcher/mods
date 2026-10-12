@@ -110,7 +110,10 @@ class CatalogTests(unittest.TestCase):
         shutil.rmtree(hello)
         removed_dir = self.root / "removed"
         third = catalog.build(self.root, removed_dir, repository, self.oras, second)
-        self.assertEqual({p["id"] for p in third["packages"]}, {"bionic-fflush-ebadf", "new-mod", "variable-editor"})
+        self.assertEqual(
+            {p["id"] for p in third["packages"]},
+            {"bionic-fflush-ebadf", "new-mod", "variable-editor"},
+        )
         self.assertEqual(json.loads((removed_dir / "publish.json").read_text()), [])
 
         with patch("tools.catalog.subprocess.run") as run:
@@ -181,6 +184,50 @@ class CatalogTests(unittest.TestCase):
                 "description": "First line second line.",
             },
         )
+
+    def test_game_keywords_are_optional_literal_metadata(self):
+        text = (
+            "---\nversion: 1.0.0\ngames:\n  - example game\n  - another game\n"
+            "---\n\n# Fix\n\nDescription.\n"
+        )
+        recipe = catalog.parse_readme(text, "fix")
+        self.assertEqual(recipe["games"], ["example game", "another game"])
+        for keyword in ("*example*", "?example", "[example]", "   "):
+            with self.subTest(keyword=keyword), self.assertRaises(ValueError):
+                catalog.parse_readme(text.replace("example game", keyword), "fix")
+
+    def test_optional_renpy_version_constraints(self):
+        template = '---\nversion: 1.0.0\nrenpy: "{}"\n---\n\n# Fix\n\nDescription.\n'
+        for constraint in ("==7.3.5", ">=7.3.5,<8.0.0", "!=7.4.0,>7.3.5,<=7.6.3"):
+            with self.subTest(constraint=constraint):
+                recipe = catalog.parse_readme(template.format(constraint), "fix")
+                self.assertEqual(recipe["renpy"], constraint)
+        for constraint in ("", "7.3.5", ">=7.3", "latest", "==7.*", ">=7.3.5,", "==07.3.5"):
+            with self.subTest(constraint=constraint), self.assertRaises(ValueError):
+                catalog.parse_readme(template.format(constraint), "fix")
+
+    def test_filter_updates_reuse_published_artifacts_without_version_change(self):
+        first = catalog.build(self.root, self.root / "published", "ren-launcher/mods", self.oras)
+        base = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, text=True
+        ).strip()
+        path = self.root / "mods/hello-world/README.md"
+        path.write_text(
+            path.read_text().replace(
+                "\n---\n", '\ngames:\n  - example\nrenpy: ">=7.3.5,<8.0.0"\n---\n', 1
+            )
+        )
+        catalog.check_versions(self.root, base, catalog.recipes(self.root))
+        output = self.root / "filtered"
+        with patch("tools.catalog.subprocess.run") as run:
+            second = catalog.build(self.root, output, "ren-launcher/mods", self.oras, first)
+        run.assert_not_called()
+        self.assertEqual(json.loads((output / "publish.json").read_text()), [])
+        old = next(p for p in first["packages"] if p["id"] == "hello-world")
+        new = next(p for p in second["packages"] if p["id"] == "hello-world")
+        self.assertEqual(new["artifact"], old["artifact"])
+        self.assertEqual(new["games"], ["example"])
+        self.assertEqual(new["renpy"], ">=7.3.5,<8.0.0")
 
     def test_payload_rejects_symlink_and_reserved_save_path(self):
         directory = self.root / "mods/variable-editor"

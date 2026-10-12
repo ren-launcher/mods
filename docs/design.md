@@ -7,7 +7,7 @@ A mod is a ZIP overlay relative to the game root. This repository owns mod sourc
 | Fact | Source of truth | Derived output |
 | --- | --- | --- |
 | Package ID | `mods/<id>/` | Catalog ID |
-| Version, name, description | README front matter, title, first paragraph | Config and catalog metadata |
+| Version, name, description, optional game keywords and runtime constraints | README front matter, title, first paragraph | Package metadata and catalog filtering |
 | Installation content | `files/` | ZIP layer |
 | Available packages | Main-branch recipes | Catalog |
 | Installed files and backups | Launcher installation module | Launcher UI |
@@ -17,7 +17,7 @@ Commands change the owner. Derived views never maintain another authoritative co
 
 ## Recipes and artifacts
 
-Recipes have no separate metadata file or installation script. Historical READMEs without versions are not published recipes. License information comes from the repository LICENSE and is excluded from ZIP payloads. Compatibility is documented per mod; general-purpose does not mean compatible with every engine.
+Recipes have no separate metadata file or installation script. Historical READMEs without versions are not published recipes. License information comes from the repository LICENSE and is excluded from ZIP payloads. Optional `games` keywords are stored in catalog entries. Clients recommend a mod when any literal keyword occurs in the original game name, after case folding and removing whitespace, hyphens, and underscores from both values. Missing keywords indicate a general-purpose mod. Wildcards are not supported. Matching does not prove compatibility or block manual installation. Optional `renpy` contains comma-separated comparisons against the detected three-part runtime version; all comparisons must match. It is stored unchanged in the catalog. Filtering metadata is excluded from artifact identity and version checks; updates reuse published artifacts. Omission declares no runtime restriction and is not evidence of compatibility. Compatibility is documented per mod; general-purpose does not mean compatible with every engine.
 
 ZIP entries have sorted paths, fixed timestamps and permissions, and use ZIP STORE for reproducible bytes. ORAS creates a local OCI layout and copies it unchanged to GHCR.
 

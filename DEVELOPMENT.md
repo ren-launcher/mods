@@ -20,11 +20,14 @@ Build outputs under ignored `dist/` include each mod’s ZIP, derived config, ma
 
 Create `mods/<id>/README.md` and `files/`. Payload paths are relative to the game root. Symlinks, `_mods/`, and `saves/` are forbidden. A simple mod can use `files/game/<mod-name>.rpy`; multiple files can share their own directory under `game/`.
 
-README front matter contains only a three-part version. The heading supplies the name and the first paragraph supplies the description. Put all remaining text in named sections.
+README front matter contains a three-part version and optional `games` keywords and a `renpy` version constraint. The heading supplies the name and the first paragraph supplies the description. Put all remaining text in named sections.
 
 ```markdown
 ---
 version: 1.0.0
+games:
+  - example game
+renpy: "==7.3.5"
 ---
 
 # Example
@@ -35,6 +38,12 @@ A short description.
 
 Instructions specific to this mod.
 ```
+
+`games` lists literal game-name keywords, not wildcard patterns. Clients compare each keyword with the original game name using substring matching after case folding and removing whitespace, hyphens, and underscores from both values. Any match recommends the mod; missing `games` means a general-purpose mod. Matching does not guarantee version compatibility or restrict manual installation.
+
+Game keywords and runtime constraints belong to the catalog, not the OCI config. Changing them updates recommendations while reusing the existing artifact and does not require a mod version increase.
+
+`renpy` is an optional quoted constraint. Use `==7.3.5` for an exact version or `>=7.3.5,<8.0.0` for a range. Comparisons support `==`, `!=`, `>=`, `<=`, `>`, and `<`, with three-part versions; comma-separated comparisons must all match. Omission means no declared runtime restriction, not verified compatibility. Clients compare the detected runtime version.
 
 The directory supplies the package ID. The root LICENSE supplies the license; do not copy it into payloads. Build arguments supply the source repository. Artifact timestamps come from the last commit affecting the mod or LICENSE, so unrelated commits do not change artifacts.
 
